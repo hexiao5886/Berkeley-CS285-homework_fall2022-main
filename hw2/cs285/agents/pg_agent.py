@@ -99,6 +99,8 @@ class PGAgent(BaseAgent):
             ## TODO: values were trained with standardized q_values, so ensure
                 ## that the predictions have the same mean and standard deviation as
                 ## the current batch of q_values
+                
+            # values are trained to be N(0,1), should be transform into q_values scale.
             q_mean, q_std = np.mean(q_values), np.std(q_values)
             values_mean, values_std = np.mean(values_unnormalized), np.std(values_unnormalized)
             values = values_unnormalized - (values_mean-q_mean)
