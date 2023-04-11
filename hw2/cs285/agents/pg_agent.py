@@ -42,6 +42,10 @@ class PGAgent(BaseAgent):
         # TODO: update the PG actor/policy using the given batch of data 
         # using helper functions to compute qvals and advantages, and
         # return the train_log obtained from updating the policy
+        q_values = self.calculate_q_vals(rewards_list)
+        advantages = self.estimate_advantage(observations, rewards_list, q_values, terminals)
+
+        train_log = self.actor.update(observations, actions, advantages, q_values)
 
         return train_log
 
@@ -69,12 +73,13 @@ class PGAgent(BaseAgent):
         # then flattened to a 1D numpy array.
 
         if not self.reward_to_go:
-            TODO
+            q_values = np.hstack([self._discounted_return(rewards) for rewards in rewards_list])
 
         # Case 2: reward-to-go PG
         # Estimate Q^{pi}(s_t, a_t) by the discounted sum of rewards starting from t
         else:
-            TODO
+            q_values = np.hstack([self._discounted_cumsum(rewards) for rewards in rewards_list])
+
 
         return q_values
 
@@ -94,7 +99,10 @@ class PGAgent(BaseAgent):
             ## TODO: values were trained with standardized q_values, so ensure
                 ## that the predictions have the same mean and standard deviation as
                 ## the current batch of q_values
-            values = TODO
+            q_mean, q_std = np.mean(q_values), np.std(q_values)
+            values_mean, values_std = np.mean(values_unnormalized), np.std(values_unnormalized)
+            values = values_unnormalized - (values_mean-q_mean)
+            values = values / (values_std/q_std)
 
             if self.gae_lambda is not None:
                 ## append a dummy T+1 value for simpler recursive calculation
@@ -114,13 +122,18 @@ class PGAgent(BaseAgent):
                     ## HINT: use terminals to handle edge cases. terminals[i]
                         ## is 1 if the state is the last in its trajectory, and
                         ## 0 otherwise.
-
+                    if terminals[i]:
+                        delta = rews[i]
+                    else:
+                        delta = rews[i] + self.gamma * values[i+1] - values[i]
+                    advantages[i] = delta + advantages[i+1] * self.gae_lambda * self.gamma
+                    
                 # remove dummy advantage
                 advantages = advantages[:-1]
 
             else:
                 ## TODO: compute advantage estimates using q_values, and values as baselines
-                advantages = TODO
+                advantages = q_values - values
 
         # Else, just set the advantage to [Q]
         else:
@@ -129,7 +142,8 @@ class PGAgent(BaseAgent):
         # Normalize the resulting advantages to have a mean of zero
         # and a standard deviation of one
         if self.standardize_advantages:
-            advantages = TODO
+            mean, std = np.mean(advantages), np.std(advantages)
+            advantages = (advantages - mean) / std
 
         return advantages
 
@@ -154,6 +168,12 @@ class PGAgent(BaseAgent):
 
             Output: list where each index t contains sum_{t'=0}^T gamma^t' r_{t'}
         """
+        # for whole-trajetory PG
+        discounted_return  = 0
+        for t in range(len(rewards)):
+            discounted_return += rewards[t] * (self.gamma ** t)
+        
+        list_of_discounted_returns = np.zeros(len(rewards)) + discounted_return
 
         return list_of_discounted_returns
 
@@ -162,6 +182,15 @@ class PGAgent(BaseAgent):
             Helper function which
             -takes a list of rewards {r_0, r_1, ..., r_t', ... r_T},
             -and returns a list where the entry in each index t' is sum_{t'=t}^T gamma^(t'-t) * r_{t'}
+            sum over t' from t to T, gamma^(t'-t) * r_{t'}
         """
+        # for reward-to-go PG
+        n = len(rewards)
+        rew_to_go = np.zeros(n)
+        rew_to_go[n-1] = rewards[n-1]
+        for i in reversed(range(n-1)):
+            rew_to_go[i] = rewards[i] + self.gamma * rew_to_go[i+1]
+        
+        list_of_discounted_cumsums = rew_to_go.copy()
 
         return list_of_discounted_cumsums

@@ -86,7 +86,15 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
 
     # query the policy with observation(s) to get selected action(s)
     def get_action(self, obs: np.ndarray) -> np.ndarray:
-        # TODO: get this from HW1
+        if len(obs.shape) > 1:
+            observation = obs
+        else:
+            observation = obs[None]
+
+        # TODO return the action that the policy prescribes
+        observation = torch.from_numpy(observation).to(ptu.device).to(torch.float32)
+        dist = self(observation)
+        return dist.sample().cpu().numpy()
 
     # update/train this policy
     def update(self, observations, actions, **kwargs):
@@ -124,7 +132,7 @@ class MLPPolicyPG(MLPPolicy):
 
     def update(self, observations, actions, advantages, q_values=None):
         observations = ptu.from_numpy(observations)
-        actions = ptu.from_numpy(actions)
+        actions = ptu.from_numpy(actions)                           # (batch_size, episode_len)
         advantages = ptu.from_numpy(advantages)
 
         # TODO: update the policy using policy gradient
@@ -133,9 +141,14 @@ class MLPPolicyPG(MLPPolicy):
             # sum_{t=0}^{T-1} [grad [log pi(a_t|s_t) * (Q_t - b_t)]]
         # HINT2: you will want to use the `log_prob` method on the distribution returned
             # by the `forward` method
+        
+        dist = self(observations)
+        loss = -(dist.log_prob(actions) * advantages).sum()
 
-        TODO
-
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        
         if self.nn_baseline:
             ## TODO: update the neural network baseline using the q_values as
             ## targets. The q_values should first be normalized to have a mean
@@ -143,8 +156,15 @@ class MLPPolicyPG(MLPPolicy):
 
             ## Note: You will need to convert the targets into a tensor using
                 ## ptu.from_numpy before using it in the loss
+            q_values = (q_values - np.mean(q_values)) / np.std(q_values)
+            q_values = ptu.from_numpy(q_values)
+            pred = self.baseline(observations)
 
-            TODO
+            baseline_loss = self.baseline_loss(pred, q_values)
+            self.baseline_optimizer.zero_grad()
+            baseline_loss.backward()
+            self.baseline_optimizer.step()
+
 
         train_log = {
             'Training Loss': ptu.to_numpy(loss),
